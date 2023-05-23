@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon --watch server index.js",
     "start": "node index.js",
-    "client": "cd client && npm ci && npm run generate",
+    "client": "cd client && npm ci && npm run build",
     "prod": "npm run client && npm ci && node prod.js",
     "build-win": "npm run client && pkg -t node16-win-x64 -o ./dist/win/audiobookshelf -C GZip .",
     "build-linux": "build/linuxpackager",
@@ -19,12 +19,16 @@
   "bin": "prod.js",
   "pkg": {
     "assets": [
-      "client/dist/**/*",
+      "client/package.json",
+      "client/.output/server/index.js",
+      "client/.output/public/**/*",
+      "client/nuxt.config.js",
       "server/Db.js"
     ],
     "scripts": [
       "prod.js",
-      "server/**/*.js"
+      "server/**/*.js",
+      "client/.output/server/index.js"
     ]
   },
   "author": "advplyr",
@@ -34,6 +38,7 @@
     "express": "^4.17.1",
     "graceful-fs": "^4.2.10",
     "htmlparser2": "^8.0.1",
+    "mime-types": "^2.1.35",
     "node-tone": "^1.0.1",
     "socket.io": "^4.5.4",
     "xml2js": "^0.5.0"

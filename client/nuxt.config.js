@@ -1,9 +1,10 @@
+const { defineNuxtConfig } = require('@nuxt/bridge')
 const pkg = require('./package.json')
 
-module.exports = {
+module.exports = defineNuxtConfig({
   // Disable server-side rendering: https://go.nuxtjs.dev/ssr-mode
   ssr: false,
-  target: 'static',
+  target: 'server',
   dev: process.env.NODE_ENV !== 'production',
   env: {
     serverUrl: process.env.NODE_ENV === 'production' ? process.env.ROUTER_BASE_PATH || '' : 'http://localhost:3333',
@@ -11,9 +12,11 @@ module.exports = {
   },
   telemetry: false,
 
-  publicRuntimeConfig: {
-    version: pkg.version,
-    routerBasePath: process.env.ROUTER_BASE_PATH || ''
+  runtimeConfig: {
+    public: {
+      version: pkg.version,
+      routerBasePath: process.env.ROUTER_BASE_PATH || ''
+    }
   },
 
   // Global page headers: https://go.nuxtjs.dev/config-head
@@ -26,14 +29,11 @@ module.exports = {
       { charset: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { hid: 'description', name: 'description', content: '' }
-    ],
-    script: [],
-    link: [
-      { rel: 'icon', type: 'image/x-icon', href: (process.env.ROUTER_BASE_PATH || '') + '/favicon.ico' }
     ]
   },
 
   router: {
+    // We must specify `./` during build to support dynamic router base paths (https://github.com/nuxt/nuxt/issues/10088)
     base: process.env.ROUTER_BASE_PATH || ''
   },
 
@@ -42,10 +42,13 @@ module.exports = {
     '@/assets/app.css'
   ],
 
+  favicon: '/favicon.ico',
+
   // Plugins to run before rendering page: https://go.nuxtjs.dev/config-plugins
   plugins: [
     '@/plugins/constants.js',
     '@/plugins/init.client.js',
+    '@/plugins/favicon.js',
     '@/plugins/axios.js',
     '@/plugins/toast.js',
     '@/plugins/utils.js',
@@ -59,22 +62,15 @@ module.exports = {
   buildModules: [
     // https://go.nuxtjs.dev/tailwindcss
     '@nuxtjs/tailwindcss',
-    '@nuxtjs/pwa',
-    '@nuxt/postcss8'
+    'pwa-nuxt-bridge',
   ],
 
   // Modules: https://go.nuxtjs.dev/config-modules
   modules: [
     'nuxt-socket-io',
     '@nuxtjs/axios',
-    '@nuxtjs/proxy'
+    // '@/modules/rewritePwaManifest.js'
   ],
-
-  proxy: {
-    '/dev/': { target: 'http://localhost:3333', pathRewrite: { '^/dev/': '' } },
-    '/ebook/': { target: process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' : '/' },
-    '/s/': { target: process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' + process.env : '/' },
-  },
 
   io: {
     sockets: [{
@@ -102,17 +98,18 @@ module.exports = {
       nativeUI: true
     },
     manifest: {
+      publicPath: `${(process.env.ROUTER_BASE_PATH || '')}_nuxt`,
       name: 'Audiobookshelf',
       short_name: 'Audiobookshelf',
       display: 'standalone',
       background_color: '#373838',
       icons: [
         {
-          src: (process.env.ROUTER_BASE_PATH || '') + '/icon.svg',
+          src: 'icon.svg',
           sizes: "any"
         },
         {
-          src: (process.env.ROUTER_BASE_PATH || '') + '/icon64.png',
+          src: 'icon64.png',
           type: "image/png",
           sizes: "64x64"
         }
@@ -129,9 +126,11 @@ module.exports = {
   // Build Configuration: https://go.nuxtjs.dev/config-build
   build: {
     postcss: {
-      plugins: {
-        tailwindcss: {},
-        autoprefixer: {},
+      postcssOptions: {
+        plugins: {
+          tailwindcss: {},
+          autoprefixer: {},
+        },
       },
     }
   },
@@ -146,6 +145,34 @@ module.exports = {
     host: '0.0.0.0'
   },
 
+  bridge: {
+    capi: false,
+    scriptSetup: false
+  },
+
+  nitro: {
+    preset: './nitro.preset.js',
+    devProxy: {
+      [`${process.env.ROUTER_BASE_PATH || ''}/dev/`]: {
+        target: `http://localhost:3333${process.env.ROUTER_BASE_PATH || ''}`,
+        pathRewrite: { [`^${process.env.ROUTER_BASE_PATH || ''}/dev/`]: process.env.ROUTER_BASE_PATH || '' }
+      },
+      [`${process.env.ROUTER_BASE_PATH || ''}/ebook/`]: {
+        target: (process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' : '') + `${process.env.ROUTER_BASE_PATH || ''}/`
+      },
+      [`${process.env.ROUTER_BASE_PATH || ''}/s/`]: {
+        target: (process.env.NODE_ENV !== 'production' ? 'http://localhost:3333' : '') + `${process.env.ROUTER_BASE_PATH || ''}/`
+      }
+    }
+  },
+
+  hooks: {
+    // 'nitro:config': (config) => {
+    //   console.log('nitro:config', config)
+    //   process.exit(0)
+    // },
+  },
+
   /**
  * Temporary workaround for @nuxt-community/tailwindcss-module.
  *
@@ -153,4 +180,4 @@ module.exports = {
  * See: [Issue tracker](https://github.com/nuxt-community/tailwindcss-module/issues/480)
  */
   devServerHandlers: [],
-}
+})
