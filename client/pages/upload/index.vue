@@ -37,9 +37,17 @@
         <p class="text-2xl text-center">{{ isDragging ? $strings.LabelUploaderDropFiles : isIOS ? $strings.LabelUploaderDragAndDropFilesOnly : $strings.LabelUploaderDragAndDrop }}</p>
         <p class="text-center text-sm my-5">{{ $strings.MessageOr }}</p>
         <div class="w-full max-w-xl mx-auto">
-          <div class="flex">
+          <div class="flex flex-wrap">
             <ui-btn class="w-full mx-1" @click="openFilePicker">{{ $strings.ButtonChooseFiles }}</ui-btn>
             <ui-btn v-if="!isIOS" class="w-full mx-1" @click="openFolderPicker">{{ $strings.ButtonChooseAFolder }} </ui-btn>
+            <ui-btn
+              v-if="selectedLibraryMediaType === 'book'"
+              class="w-full mx-1"
+              :loading="importingInpx"
+              @click="openInpxPicker"
+            >
+              {{ $strings.ButtonImportFromInpx }}
+            </ui-btn>
           </div>
         </div>
         <div class="pt-8 text-center">
@@ -85,6 +93,7 @@
 
     <input ref="fileInput" type="file" multiple :accept="isIOS ? '' : inputAccept" class="hidden" @change="inputChanged" />
     <input ref="fileFolderInput" type="file" webkitdirectory multiple :accept="inputAccept" class="hidden" @change="inputChanged" v-if="!isIOS" />
+    <input ref="inpxInput" type="file" accept=".inpx" class="hidden" @change="inpxChanged" />
   </div>
 </template>
 
@@ -104,6 +113,7 @@ export default {
       selectedFolderId: null,
       processing: false,
       uploadFinished: false,
+      importingInpx: false,
       fetchMetadata: {
         enabled: false,
         provider: null
@@ -216,6 +226,30 @@ export default {
     },
     openFolderPicker() {
       if (this.$refs.fileFolderInput) this.$refs.fileFolderInput.click()
+    },
+    openInpxPicker() {
+      if (this.$refs.inpxInput) this.$refs.inpxInput.click()
+    },
+    async inpxChanged(e) {
+      if (!e.target || !e.target.files || !e.target.files[0]) return
+      if (!this.selectedLibraryId) {
+        this.$toast.error('Must select library')
+        e.target.value = ''
+        return
+      }
+      const file = e.target.files[0]
+      const form = new FormData()
+      form.set('inpx', file)
+      this.importingInpx = true
+      try {
+        await this.$axios.$post(`/api/libraries/${this.selectedLibraryId}/import-inpx`, form)
+        this.$toast.success('INPX import started')
+      } catch (error) {
+        console.error('Failed to import INPX', error)
+        this.$toast.error(error.response?.data || 'Failed to import INPX')
+      }
+      this.importingInpx = false
+      e.target.value = ''
     },
     isDraggingFile(e) {
       // Checks dragging file or folder and not an element on the page
