@@ -24,6 +24,9 @@ const libraryFilters = require('../utils/queries/libraryFilters')
 const libraryItemsPodcastFilters = require('../utils/queries/libraryItemsPodcastFilters')
 const authorFilters = require('../utils/queries/authorFilters')
 const zipHelpers = require('../utils/zipHelpers')
+const { parseInpxBuffer } = require('../libs/inpxParser')
+const { getTitleIgnorePrefix } = require('../utils/index')
+const parseNameString = require('../utils/parsers/parseNameString')
 
 /**
  * @typedef RequestUserObject
@@ -1374,6 +1377,115 @@ class LibraryController {
       found: libraryItemsWithMetadata.length,
       removed: numRemoved
     })
+  }
+
+  /**
+   * POST: /api/libraries/:id/import-inpx
+   * Import books into a library from an INPX file
+   *
+   * @param {LibraryControllerRequest} req
+   * @param {Response} res
+   */
+  async importFromInpx(req, res) {
+    if (!req.user.isAdminOrUp) {
+      Logger.error(`[LibraryController] Non-admin user "${req.user.username}" attempted to import inpx`)
+      return res.sendStatus(403)
+    }
+
+    const file = req.files?.inpx
+    if (!file) {
+      Logger.error('[LibraryController] Missing inpx file')
+      return res.status(400).send('Missing inpx file')
+    }
+
+    let records
+    try {
+      records = parseInpxBuffer(file.data)
+    } catch (error) {
+      Logger.error('[LibraryController] Failed to parse inpx file', error)
+      return res.status(400).send('Failed to parse inpx file')
+    }
+
+    const transaction = await Database.sequelize.transaction()
+    const createdIds = []
+    try {
+      for (const rec of records) {
+        const book = await Database.bookModel.create(
+          {
+            title: rec.title,
+            language: rec.lang,
+            titleIgnorePrefix: getTitleIgnorePrefix(rec.title)
+          },
+          { transaction }
+        )
+
+        if (rec.authors?.length) {
+          const authorInstances = []
+          for (const name of rec.authors) {
+            const [author] = await Database.authorModel.findOrCreate({
+              where: { name },
+              defaults: { name },
+              transaction
+            })
+            authorInstances.push(author)
+            Database.addAuthorToFilterData(req.library.id, author.name, author.id)
+          }
+          await book.setAuthors(authorInstances, { transaction })
+        }
+
+        if (rec.lang) {
+          Database.addLanguageToFilterData(req.library.id, rec.lang)
+        }
+
+        const li = await Database.libraryItemModel.create(
+          {
+            libraryId: req.library.id,
+            mediaId: book.id,
+            mediaType: 'book',
+            path: rec.archive || null,
+            relPath: rec.archive || null,
+            isFile: !!rec.archive,
+            title: rec.title,
+            titleIgnorePrefix: getTitleIgnorePrefix(rec.title),
+            authorNamesFirstLast: (rec.authors || []).join(', '),
+            authorNamesLastFirst: (rec.authors || [])
+              .map((a) => parseNameString.nameToLastFirst(a))
+              .join(', ')
+          },
+          { transaction }
+        )
+        createdIds.push(li.id)
+      }
+      await transaction.commit()
+    } catch (error) {
+      await transaction.rollback()
+      Logger.error('[LibraryController] Failed importing inpx', error)
+      return res.status(500).send('Failed importing inpx')
+    }
+
+    if (createdIds.length) {
+      const libraryItems = await Database.libraryItemModel.findAll({
+        where: { id: createdIds },
+        include: [
+          {
+            model: Database.bookModel,
+            include: [
+              {
+                model: Database.authorModel,
+                through: { attributes: ['createdAt'] }
+              },
+              {
+                model: Database.seriesModel,
+                through: { attributes: ['id', 'sequence', 'createdAt'] }
+              }
+            ]
+          }
+        ]
+      })
+      SocketAuthority.libraryItemsEmitter('item_added', libraryItems)
+    }
+
+    res.json({ imported: createdIds.length })
   }
 
   /**
